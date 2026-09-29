@@ -38,12 +38,7 @@ class MosSchoolClient:
             "Profile-Type": self.PROFILE_TYPE,
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
             "X-Mes-RoleId": self.ROLE_ID,
-            "X-mes-subsystem": self.SUBSYSTEM,
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Site": "same-origin",
-            "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
-            "sec-ch-ua-mobile": "?1",
-            "sec-ch-ua-platform": "\"Android\"",
+            "X-mes-subsystem": self.SUBSYSTEM
         })
 
     def _get(self, path, params=None):
