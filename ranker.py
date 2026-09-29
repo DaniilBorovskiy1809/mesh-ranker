@@ -1,139 +1,198 @@
-import requests
 import json
 from datetime import date
 
-today = date.today().isoformat()
+import requests
 
-headers = {
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "ru-US,ru;q=0.9",
-    "Connection": "keep-alive",
-    "Content-Type": "application/json;charset=UTF-8",
-    "Profile-Type": "student",
-    "Sec-Fetch-Dest": "empty",
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
-    "X-Mes-RoleId": "1",
-    "X-mes-subsystem": "familyweb",
-    "Sec-Fetch-Site": "same-origin",
-    "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
-    "sec-ch-ua-mobile": "?1",
-    "sec-ch-ua-platform": "\"Android\""
-}
 
-CACHE_FILE = "users_cache.json"
+class MosSchoolClient:
+    BASE_URL = "https://school.mos.ru"
+    RANK_URL = "/api/ej/rating/v1/rank/class"
+    SUBJECTS_URL = "/api/ej/rating/v1/rank/subjects"
+    PROFILE_URL = "/api/family/web/v1/profile"
+    PROFILE_BY_ID_URL = "/api/gamification/v1/profiles"
 
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-ORANGE = "\033[38;5;208m"
-RED = "\033[91m"
-RESET = "\033[0m"
+    ROLE_ID = "1"
+    SUBSYSTEM = "familyweb"
+    PROFILE_TYPE = "student"
+    TIMEOUT = 15
 
-def load_cache():
-    try:
-        with open(CACHE_FILE, 'r') as f:
-            cache = json.load(f)
-    except FileNotFoundError:
-        return {}
-    if "users" in cache:
-        return cache["users"]
-    return cache
+    AUTH_FILE = "school-mos-ru.json"
+    CACHE_FILE = "users_cache.json"
 
-def save_cache(cache):
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(cache, f, ensure_ascii=False, indent=4)
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    ORANGE = "\033[38;5;208m"
+    RED = "\033[91m"
+    RESET = "\033[0m"
 
-def get_and_parse_rank(my_uuid, subject=None):
-    subject_param = f"&subjectId={subject}" if subject else ""
-    response = requests.get(f'https://school.mos.ru/api/ej/rating/v1/rank/class?personId={my_uuid}{subject_param}&date={today}',
-    headers = headers)
-    return response.json()
+    def __init__(self):
+        self.today = date.today().isoformat()
+        self.my_uuid = None
+        self.users_cache = {}
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru-US,ru;q=0.9",
+            "Connection": "keep-alive",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Profile-Type": self.PROFILE_TYPE,
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
+            "X-Mes-RoleId": self.ROLE_ID,
+            "X-mes-subsystem": self.SUBSYSTEM,
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Site": "same-origin",
+            "sec-ch-ua": "\"Chromium\";v=\"147\", \"Not.A/Brand\";v=\"8\"",
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": "\"Android\"",
+        })
 
-def get_subjects(my_uuid, headers):
-    response = requests.get(f'https://school.mos.ru/api/ej/rating/v1/rank/subjects?date={today}&personId={my_uuid}', headers=headers).json()
-    return response
+    def _get(self, path, params=None):
+        """Выполняет GET-запрос и возвращает разобранный JSON."""
+        response = self.session.get(self.BASE_URL + path, params=params, timeout=self.TIMEOUT)
+        response.raise_for_status()
+        return response.json()
 
-def mark_color(mark):
-    rounded = round(mark) if mark is not None else 2
-    if rounded >= 5:
-        return GREEN
-    if rounded == 4:
-        return YELLOW
-    if rounded == 3:
-        return ORANGE
-    return RED
+    def load_cached_auth(self):
+        """Читает сохранённую авторизацию и возвращает uuid ученика."""
+        try:
+            with open(self.AUTH_FILE, 'r') as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+        self._apply_auth(data["token"], data["Profile-Id"])
+        print(f"Данные загружены из {self.AUTH_FILE}")
+        return data["contingent_guid"]
 
-def name_by_id(id, headers):
-    cache = load_cache()
-    if id in cache:
-        return cache[id]
-    response = requests.get(f'https://school.mos.ru/api/gamification/v1/profiles?personId={id}', headers=headers).json()
-    name = response["firstName"] + " " + response["lastName"]
-    cache[id] = name
-    save_cache(cache)
-    return name
-
-def get_profile():
-    response = requests.get('https://school.mos.ru/api/family/web/v1/profile', headers=headers)
-    profile_data = response.json()
-    return profile_data["profile"]["last_name"] + " " + profile_data["profile"]["first_name"], str(profile_data["children"][0]["id"]), profile_data["children"][0]["contingent_guid"]
-    
-
-def login():
-    try:
-        with open('school-mos-ru.json', 'r') as f:
-            data = json.load(f)
-            token = data["token"]
-            profile_id = data["Profile-Id"]
-            name = data["name"]
-            my_uuid = data["contingent_guid"]
-            headers["Authorization"] = f"Bearer {token}"
-            headers["Profile-Id"] = profile_id
-        print("Successfully loaded data from school-mos-ru.json!")
-        return my_uuid
-            
-    except FileNotFoundError:
-        token = input("Please go to https://school.mos.ru/v2/token/refresh?roleId=1&subsystem=2 and paste the token: ")
-        headers["Authorization"] = f"Bearer {token}"
-        name, profile_id, my_uuid = get_profile()
-        headers["Profile-Id"] = profile_id
+    def refresh_auth(self, token):
+        """Обновляет авторизацию по токену, сохраняет её и возвращает uuid."""
+        self.session.headers["Authorization"] = f"Bearer {token}"
+        profile = self._get(self.PROFILE_URL)
+        name = profile["profile"]["last_name"] + " " + profile["profile"]["first_name"]
+        child = profile["children"][0]
+        profile_id = str(child["id"])
+        my_uuid = child["contingent_guid"]
+        self._apply_auth(token, profile_id)
         data_to_jsonfile = {
             "token": token,
             "Profile-Id": profile_id,
             "name": name,
-            "contingent_guid": my_uuid
+            "contingent_guid": my_uuid,
         }
-        with open("school-mos-ru.json", 'w') as f:
+        with open(self.AUTH_FILE, 'w') as f:
             json.dump(data_to_jsonfile, f, ensure_ascii=False, indent=4)
-        print(f"Successfully registered as \"{name}\" and saved data!")
+        print(f"Успешный вход как \"{name}\", данные сохранены!")
         return my_uuid
 
-def choose_subject(my_uuid, headers):
-    subjects = get_subjects(my_uuid, headers)
-    subject_ids = [str(subject["subjectId"]) for subject in subjects]
-    print("0. Общий рейтинг")
-    for i, subject in enumerate(subjects, start=1):
-        mark = subject["rank"]["averageMarkFive"]
-        color = mark_color(mark)
-        print(f"{color}{i}. {subject['subjectName']} - {mark}{RESET}")
-    choice = input("Выберите предмет (0 для общего рейтинга): ")
-    if choice == "0" or choice == "":
-        return None
-    return subject_ids[int(choice) - 1]
+    def login(self):
+        """Загружает сохранённую авторизацию или запрашивает токен у пользователя."""
+        my_uuid = self.load_cached_auth()
+        if my_uuid:
+            return my_uuid
+        token = input("Перейдите на https://school.mos.ru/v2/token/refresh?roleId=1&subsystem=2 и вставьте токен: ")
+        return self.refresh_auth(token)
 
-def main():
-    my_uuid = login()
-    subject = choose_subject(my_uuid, headers)
-    rank_data = get_and_parse_rank(my_uuid, subject)
-    p = 0
-    try:
-        for student in rank_data:
-            stud_mark = rank_data[p]["rank"]["averageMarkFive"]
-            p+=1
-            stud_id = student["personId"]
-            stud_name = name_by_id(stud_id, headers)
-            print(f"{p}. {stud_name} - {stud_mark}")
-    except KeyError:
-        print("ERROR!!!", rank_data)
+    def _apply_auth(self, token, profile_id):
+        self.session.headers["Authorization"] = f"Bearer {token}"
+        self.session.headers["Profile-Id"] = profile_id
+
+    def load_cache(self):
+        """Загружает кэш имён учеников."""
+        try:
+            with open(self.CACHE_FILE, 'r') as f:
+                cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.users_cache = {}
+            return
+        self.users_cache = cache["users"] if "users" in cache else cache
+
+    def flush_cache(self):
+        """Сохраняет кэш имён учеников на диск."""
+        with open(self.CACHE_FILE, 'w') as f:
+            json.dump(self.users_cache, f, ensure_ascii=False, indent=4)
+
+    def get_name(self, person_id):
+        """Возвращает имя ученика, используя кэш при наличии."""
+        if person_id in self.users_cache:
+            return self.users_cache[person_id]
+        data = self._get(self.PROFILE_BY_ID_URL, params={"personId": person_id})
+        name = data["firstName"] + " " + data["lastName"]
+        self.users_cache[person_id] = name
+        return name
+
+    def get_subjects(self):
+        """Возвращает список предметов с оценками ученика."""
+        return self._get(self.SUBJECTS_URL, params={"date": self.today, "personId": self.my_uuid})
+
+    def get_rank(self, subject_id=None):
+        """Возвращает рейтинг класса, при наличии — по конкретному предмету."""
+        params = {"personId": self.my_uuid, "date": self.today}
+        if subject_id:
+            params["subjectId"] = subject_id
+        return self._get(self.RANK_URL, params=params)
+
+    def mark_color(self, mark):
+        """Возвращает ANSI-цвет для средней оценки или None, если оценки нет."""
+        if mark is None:
+            return None
+        rounded = round(mark)
+        if rounded >= 5:
+            return self.GREEN
+        if rounded == 4:
+            return self.YELLOW
+        if rounded == 3:
+            return self.ORANGE
+        return self.RED
+
+    def choose_subject(self):
+        """Показывает предметы и возвращает выбранный id или None для общего рейтинга."""
+        subjects = self.get_subjects()
+        subject_ids = [str(subject["subjectId"]) for subject in subjects]
+        print("0. Общий рейтинг")
+        for index, subject in enumerate(subjects, start=1):
+            mark = subject["rank"]["averageMarkFive"]
+            mark_text = "—" if mark is None else mark
+            color = self.mark_color(mark)
+            if color is None:
+                print(f"{index}. {subject['subjectName']} - {mark_text}")
+            else:
+                print(f"{color}{index}. {subject['subjectName']} - {mark_text}{self.RESET}")
+        while True:
+            choice = input("Выберите предмет (0 для общего рейтинга): ").strip()
+            if choice == "":
+                return None
+            try:
+                number = int(choice)
+            except ValueError:
+                print("Введите число.")
+                continue
+            if number == 0:
+                return None
+            if 1 <= number <= len(subject_ids):
+                return subject_ids[number - 1]
+            print(f"Введите число от 0 до {len(subject_ids)}.")
+
+    def print_rank(self, rank_data):
+        """Печатает рейтинг класса."""
+        for place, student in enumerate(rank_data, start=1):
+            mark = student["rank"]["averageMarkFive"]
+            name = self.get_name(student["personId"])
+            print(f"{place}. {name} - {mark}")
+
+    def run(self):
+        """Точка входа: авторизация, выбор предмета и вывод рейтинга."""
+        self.my_uuid = self.login()
+        self.load_cache()
+        try:
+            subject_id = self.choose_subject()
+            rank_data = self.get_rank(subject_id)
+            self.print_rank(rank_data)
+        except requests.RequestException as error:
+            print(f"Ошибка HTTP-запроса: {error}")
+        except (KeyError, TypeError, ValueError) as error:
+            print(f"Ошибка обработки данных: {error}")
+        finally:
+            self.flush_cache()
+
+
 if __name__ == "__main__":
-    main()
+    MosSchoolClient().run()
