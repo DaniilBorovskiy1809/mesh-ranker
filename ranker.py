@@ -138,10 +138,11 @@ class MosSchoolClient:
             return self.ORANGE
         return self.RED
 
-    def choose_subject(self):
-        """Показывает предметы и возвращает выбранный id или None для общего рейтинга."""
+    def choose_subjects(self):
+        """Показывает предметы и возвращает список выбранных пар (id, название)."""
         subjects = self.get_subjects()
         subject_ids = [str(subject["subjectId"]) for subject in subjects]
+        subject_names = [subject["subjectName"] for subject in subjects]
         print("0. Общий рейтинг")
         for index, subject in enumerate(subjects, start=1):
             mark = subject["rank"]["averageMarkFive"]
@@ -152,35 +153,40 @@ class MosSchoolClient:
             else:
                 print(f"{color}{index}. {subject['subjectName']} - {mark_text}{self.RESET}")
         while True:
-            choice = input("Выберите предмет (0 для общего рейтинга): ").strip()
+            choice = input("Выберите предметы через пробел (0 для общего рейтинга): ").strip()
             if choice == "":
-                return None
+                return [(None, "Общий рейтинг")]
             try:
-                number = int(choice)
+                numbers = [int(number) for number in choice.split()]
             except ValueError:
-                print("Введите число.")
+                print("Введите числа через пробел.")
                 continue
-            if number == 0:
-                return None
-            if 1 <= number <= len(subject_ids):
-                return subject_ids[number - 1]
-            print(f"Введите число от 0 до {len(subject_ids)}.")
+            if any(number < 0 or number > len(subject_ids) for number in numbers):
+                print(f"Введите числа от 0 до {len(subject_ids)}.")
+                continue
+            return [
+                (None, "Общий рейтинг") if number == 0 else (subject_ids[number - 1], subject_names[number - 1])
+                for number in numbers
+            ]
 
-    def print_rank(self, rank_data):
-        """Печатает рейтинг класса."""
+    def print_rank(self, subject_name, rank_data):
+        """Печатает рейтинг класса по предмету."""
+        print(f"=== {subject_name} ===")
         for place, student in enumerate(rank_data, start=1):
             mark = student["rank"]["averageMarkFive"]
             name = self.get_name(student["personId"])
             print(f"{place}. {name} - {mark}")
+        print()
 
     def run(self):
         """Точка входа: авторизация, выбор предмета и вывод рейтинга."""
         self.my_uuid = self.login()
         self.load_cache()
         try:
-            subject_id = self.choose_subject()
-            rank_data = self.get_rank(subject_id)
-            self.print_rank(rank_data)
+            selections = self.choose_subjects()
+            for subject_id, subject_name in selections:
+                rank_data = self.get_rank(subject_id)
+                self.print_rank(subject_name, rank_data)
         except requests.RequestException as error:
             print(f"Ошибка HTTP-запроса: {error}")
         except (KeyError, TypeError, ValueError) as error:
